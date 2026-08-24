@@ -11,72 +11,34 @@
 <body>
 <main><div class="card">
 <h1>Scarlet IPA OTA Uploader</h1>
-<p>Upload a signed IPA to free storage.to hosting and generate an iOS OTA installation link.</p>
+<p>Upload a signed IPA and generate an iOS OTA installation link.</p>
 <div class="grid">
 <label>IPA file<input id="ipaFile" type="file" accept=".ipa,application/octet-stream"></label>
 <label>App name<input id="name" placeholder="My App"></label>
 <label>Bundle ID<input id="bundle" placeholder="com.example.myapp"></label>
 <label>Version<input id="version" placeholder="1.0"></label>
 <label>Icon URL (optional)<input id="icon" placeholder="https://example.com/icon.png"></label>
+<label>Free storage API key<input id="apiKey" type="password" placeholder="Paste your free PostFile API key"></label>
 </div>
-<div class="buttons"><button id="uploadBtn" onclick="uploadIPA()">Upload IPA &amp; Generate OTA</button><button id="cancelBtn" class="danger" onclick="cancelUpload()" disabled>Cancel</button><button class="secondary" onclick="location.reload()">Reset</button></div>
-<p id="status" class="small">Ready.</p>
-<div id="progress" class="progress"><div id="bar" class="bar"></div></div>
-<div id="pct" class="pct">0%</div>
-<p id="speed" class="hint"></p>
+<div class="buttons"><button id="uploadBtn" onclick="uploadIPA()">Upload IPA &amp; Generate OTA</button><button id="cancelBtn" class="danger" onclick="cancelUpload()" disabled>Cancel</button><button class="secondary" onclick="resetForm()">Reset</button></div>
+<p id="status" class="small">Ready.</p><div id="progress" class="progress"><div id="bar" class="bar"></div></div><div id="pct" class="pct">0%</div><p id="speed" class="hint"></p>
 <div id="result" class="result"></div>
 <details class="setup"><summary>Free storage setup</summary>
-<p class="small">This version does not use Firebase. It uploads directly to storage.to. No API key or payment method is required. Free uploads are temporary and expire after 3 days by default.</p>
+<p class="small">This version uses PostFile instead of Firebase. Its free plan requires a free API key, supports browser uploads, and allows files up to 50 MB. No credit card is required. Your current 12.2 MB IPA fits the limit.</p>
+<p class="small"><a href="https://postfile.net/" target="_blank" rel="noopener">Get a free PostFile API key</a></p>
 </details>
 <p class="note">The IPA must already be properly signed. This uploader does not sign or modify the IPA.</p>
 </div></main>
 <script>
-const $=id=>document.getElementById(id);
-const API='https://storage.to/api';
-let activeXHRs=[];
-let canceled=false;
-let visitorToken=localStorage.getItem('scarletStorageToVisitor')||crypto.randomUUID();
-localStorage.setItem('scarletStorageToVisitor',visitorToken);
-
+const $=id=>document.getElementById(id);let xhr=null,canceled=false;
+$('apiKey').value=localStorage.getItem('scarletPostFileKey')||'';
+$('apiKey').addEventListener('input',()=>localStorage.setItem('scarletPostFileKey',$('apiKey').value.trim()));
 const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const manifest=(url,n,b,v,i)=>`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(url)}</string></dict>${i?`<dict><key>kind</key><string>display-image</string><key>url</key><string>${esc(i)}</string></dict>`:''}</array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(b)}</string><key>bundle-version</key><string>${esc(v)}</string><key>kind</key><string>software</string><key>title</key><string>${esc(n)}</string></dict></dict></array></dict></plist>`;
-function humanBytes(n){if(!n)return '0 B';const u=['B','KB','MB','GB'];let i=0,x=n;while(x>=1024&&i<u.length-1){x/=1024;i++}return `${x.toFixed(i?1:0)} ${u[i]}`;}
-function xhrRequest(method,url,body,headers={},onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();activeXHRs.push(x);x.open(method,url,true);for(const [k,v] of Object.entries(headers||{}))x.setRequestHeader(k,v);x.upload.onprogress=e=>{if(e.lengthComputable&&onProgress)onProgress(e.loaded,e.total)};x.onload=()=>{activeXHRs=activeXHRs.filter(a=>a!==x);if(x.status>=200&&x.status<300)resolve(x);else reject(new Error(`HTTP ${x.status}: ${x.responseText||x.statusText}`));};x.onerror=()=>{activeXHRs=activeXHRs.filter(a=>a!==x);reject(new Error('Network error while uploading.'));};x.onabort=()=>{activeXHRs=activeXHRs.filter(a=>a!==x);reject(new Error('Upload canceled.'));};x.send(body);});}
-async function jsonRequest(path,body,extraHeaders={}){const r=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json','X-Visitor-Token':visitorToken,...extraHeaders},body:JSON.stringify(body)});const t=await r.text();let j;try{j=JSON.parse(t)}catch{throw new Error(`HTTP ${r.status}: ${t||r.statusText}`)}if(!r.ok||j.success===false)throw new Error(j.error||`HTTP ${r.status}`);return j;}
-function setProgress(bytes,total,startBytes,startTime){const p=total?Math.min(100,Math.round(bytes/total*100)):0;const elapsed=Math.max(.1,(performance.now()-startTime)/1000);const speed=(bytes-startBytes)/elapsed;$('bar').style.width=p+'%';$('pct').textContent=p+'%';$('speed').textContent=`${humanBytes(bytes)} / ${humanBytes(total)} • ${humanBytes(Math.max(0,speed))}/s`;}
-async function uploadToStorage(file,onOverallProgress){
- const init=await jsonRequest('/upload/init',{filename:file.name,content_type:file.type||'application/octet-stream',size:file.size});
- if(init.type==='single'){
-   const start=performance.now();
-   await xhrRequest('PUT',init.upload_url,file,{'Content-Type':file.type||'application/octet-stream'},(loaded,total)=>onOverallProgress(loaded,file.size,start));
- }else if(init.type==='multipart'){
-   const partSize=init.part_size;const totalParts=init.total_parts;let urls={};
-   for(const [n,u] of Object.entries(init.initial_urls||{}))urls[Number(n)]=u;
-   const missing=[];for(let p=1;p<=totalParts;p++)if(!urls[p])missing.push(p);
-   if(missing.length){const more=await jsonRequest('/upload/parts',{upload_id:init.upload_id,part_numbers:missing},{'Authorization':'Owner '+init.owner_token,'X-Visitor-Token':visitorToken});for(const x of more.part_urls||[])urls[x.partNumber]=x.url;}
-   const etags=[];let done=0;const start=performance.now();const concurrency=Math.min(4,totalParts);let next=1;
-   async function worker(){while(true){const p=next++;if(p>totalParts)return;const begin=(p-1)*partSize,end=Math.min(file.size,begin+partSize);const blob=file.slice(begin,end);let last=0;try{const x=await xhrRequest('PUT',urls[p],blob,{},(loaded)=>{const delta=loaded-last;last=loaded;setProgress(done+loaded,file.size,0,start)});etags[p-1]={partNumber:p,etag:x.getResponseHeader('ETag')||x.getResponseHeader('etag')};done+=blob.size;setProgress(done,file.size,0,start);}catch(e){throw e;}}}
-   await Promise.all(Array.from({length:concurrency},worker));
-   await jsonRequest('/upload/complete-multipart',{upload_id:init.upload_id,parts:etags},{'Authorization':'Owner '+init.owner_token,'X-Visitor-Token':visitorToken});
- }
- const confirmed=await jsonRequest('/upload/confirm',{filename:file.name,size:file.size,content_type:file.type||'application/octet-stream',r2_key:init.r2_key});
- return confirmed.file.url;
-}
-window.cancelUpload=()=>{canceled=true;for(const x of activeXHRs)x.abort();activeXHRs=[];$('status').textContent='Canceling…';};
-window.uploadIPA=async()=>{
- const f=$('ipaFile').files[0];if(!f||!f.name.toLowerCase().endsWith('.ipa'))return alert('Choose an .ipa file first.');
- canceled=false;$('uploadBtn').disabled=true;$('cancelBtn').disabled=false;$('result').style.display='none';$('progress').className='progress on';$('pct').className='pct on';$('bar').style.width='0%';$('pct').textContent='0%';$('speed').textContent='';
- try{
-   $('status').textContent='Starting free upload…';
-   const ipaUrl=await uploadToStorage(f,(bytes,total,start)=>{if(canceled)throw new Error('Upload canceled.');$('status').textContent=`Uploading IPA… ${Math.round(bytes/total*100)}%`;setProgress(bytes,total,0,start);});
-   $('status').textContent='Generating OTA manifest…';
-   const n=$('name').value.trim()||f.name.replace(/\.ipa$/i,''),b=$('bundle').value.trim()||'com.example.myapp',v=$('version').value.trim()||'1.0',i=$('icon').value.trim();
-   const mf=new File([manifest(ipaUrl,n,b,v,i)],'manifest.plist',{type:'application/xml'});
-   const manifestUrl=await uploadToStorage(mf,(bytes,total,start)=>{const p=bytes/total*100;$('status').textContent=`Uploading OTA manifest… ${Math.round(p)}%`;});
-   const iu=`itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;
-   $('bar').style.width='100%';$('pct').textContent='100%';$('speed').textContent='';$('status').textContent='Upload complete.';$('result').style.display='block';$('result').innerHTML=`<div class="ok"><b>Upload complete!</b></div><p>OTA install link:</p><div class="buttons"><a class="btn" href="${esc(iu)}">Install</a><button class="secondary" onclick="navigator.clipboard.writeText(${JSON.stringify(iu)}).then(()=>alert('Copied!'))">Copy Link</button></div><p>IPA download URL:</p><code>${esc(ipaUrl)}</code><p>Manifest URL:</p><code>${esc(manifestUrl)}</code>`;
- }catch(e){$('status').textContent=e?.message==='Upload canceled.'?'Upload canceled.':'Upload failed.';$('progress').className='progress';$('pct').className='pct';$('speed').textContent='';$('result').style.display='block';$('result').innerHTML=`<div class="error"><b>Upload failed</b><p>${esc(e?.message||String(e))}</p><p class="small">If this is a CORS error, storage.to may not allow browser requests from this GitHub Pages origin. If that happens, I can switch the uploader to another free provider with browser-compatible uploads.</p></div>`;
- }finally{$('uploadBtn').disabled=false;$('cancelBtn').disabled=true;activeXHRs=[];}
-};
+function human(n){if(!n)return'0 B';const u=['B','KB','MB','GB'];let i=0,x=n;while(x>=1024&&i<3){x/=1024;i++}return x.toFixed(i?1:0)+' '+u[i]}
+function uploadFile(file,key){return new Promise((resolve,reject)=>{xhr=new XMLHttpRequest();xhr.open('POST','https://postfile.net/v1/upload',true);xhr.setRequestHeader('X-API-Key',key);const form=new FormData();form.append('file',file,file.name);const started=performance.now();xhr.upload.onprogress=e=>{if(!e.lengthComputable)return;const p=Math.round(e.loaded/e.total*100),secs=Math.max(.1,(performance.now()-started)/1000),speed=e.loaded/secs;$('bar').style.width=p+'%';$('pct').textContent=p+'%';$('speed').textContent=human(e.loaded)+' / '+human(e.total)+' • '+human(speed)+'/s';$('status').textContent='Uploading… '+p+'%'};xhr.onload=()=>{xhr=null;let data;try{data=JSON.parse(xhr?.responseText||'{}')}catch(e){try{data=JSON.parse(event.target.responseText||'{}')}catch(_){}}if(event.target.status>=200&&event.target.status<300&&data?.url)resolve(data.url);else reject(new Error((data&&data.error)||('HTTP '+event.target.status+': '+(event.target.responseText||'Upload failed'))))};xhr.onerror=()=>{xhr=null;reject(new Error('Network/CORS error. Please try again.'))};xhr.onabort=()=>{xhr=null;reject(new Error('Upload canceled.'))};xhr.send(form)})}
+function cancelUpload(){canceled=true;if(xhr)xhr.abort();$('status').textContent='Canceling…'}
+function resetForm(){location.reload()}
+async function uploadIPA(){const f=$('ipaFile').files[0],key=$('apiKey').value.trim();if(!f||!f.name.toLowerCase().endsWith('.ipa'))return alert('Choose an .ipa file first.');if(!key)return alert('Paste your free PostFile API key first.');if(f.size>50*1024*1024)return alert('The free PostFile plan supports files up to 50 MB.');canceled=false;$('uploadBtn').disabled=true;$('cancelBtn').disabled=false;$('result').style.display='none';$('progress').className='progress on';$('pct').className='pct on';$('bar').style.width='0%';$('pct').textContent='0%';$('speed').textContent='';try{localStorage.setItem('scarletPostFileKey',key);$('status').textContent='Starting upload…';const ipaUrl=await uploadFile(f,key);if(canceled)throw new Error('Upload canceled.');$('status').textContent='Uploading OTA manifest…';const n=$('name').value.trim()||f.name.replace(/\.ipa$/i,''),b=$('bundle').value.trim()||'com.example.myapp',v=$('version').value.trim()||'1.0',i=$('icon').value.trim();const mf=new File([manifest(ipaUrl,n,b,v,i)],'manifest.plist',{type:'application/xml'});const manifestUrl=await uploadFile(mf,key);const iu=`itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;$('bar').style.width='100%';$('pct').textContent='100%';$('speed').textContent='';$('status').textContent='Upload complete.';$('result').style.display='block';$('result').innerHTML=`<div class="ok"><b>Upload complete!</b></div><p>OTA install link:</p><div class="buttons"><a class="btn" href="${esc(iu)}">Install</a><button class="secondary" onclick="navigator.clipboard.writeText(${JSON.stringify(iu)}).then(()=>alert('Copied!'))">Copy Link</button></div><p>IPA URL:</p><code>${esc(ipaUrl)}</code><p>Manifest URL:</p><code>${esc(manifestUrl)}</code>`}catch(e){$('status').textContent=e.message==='Upload canceled.'?'Upload canceled.':'Upload failed.';$('progress').className='progress';$('pct').className='pct';$('speed').textContent='';$('result').style.display='block';$('result').innerHTML=`<div class="error"><b>Upload failed</b><p>${esc(e.message||String(e))}</p><p class="small">Check that your PostFile API key is correct and that the IPA is 50 MB or smaller.</p></div>`}finally{$('uploadBtn').disabled=false;$('cancelBtn').disabled=true;xhr=null}}
 </script>
 </body></html>
