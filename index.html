@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Scarlet IPA OTA Uploader</title>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Inter,Arial,sans-serif;background:#0b0b10;color:#f5f5f7;min-height:100vh}main{max-width:760px;margin:auto;padding:32px 18px 48px}.card{background:#15151c;border:1px solid #292933;border-radius:24px;padding:24px;box-shadow:0 20px 60px #0005}h1{margin:0 0 7px;font-size:30px}p{color:#a9a9b4;line-height:1.5}.grid{display:grid;gap:13px;margin-top:20px}label{font-size:13px;color:#bdbdc8}input{width:100%;margin-top:7px;padding:13px 14px;border-radius:12px;border:1px solid #343440;background:#0f0f15;color:#fff;font-size:15px;outline:none}input[type=file]{padding:10px}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}button,a.btn{border:0;border-radius:12px;padding:13px 17px;font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;background:#7c5cff;color:white}button.secondary{background:#292933}button:disabled{opacity:.5}.result{display:none;margin-top:22px;padding:17px;border-radius:16px;background:#0e0e14;border:1px solid #30303a}.result code{display:block;overflow:auto;white-space:nowrap;padding:11px;margin-top:7px;background:#17171f;border-radius:10px;color:#d8d8e0}.note{font-size:13px}.ok{color:#8de5a1}.error{color:#ff8f8f}.spin{margin-top:16px}.progress{display:none;margin-top:12px;height:10px;border-radius:99px;background:#292933;overflow:hidden}.progress.on{display:block}.bar{height:100%;width:0;background:#7c5cff;transition:width .08s}.pct{display:none;margin-top:6px;font-size:12px;color:#a9a9b4}.pct.on{display:block}.hint{font-size:12px;color:#8e8e9a}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Inter,Arial,sans-serif;background:#0b0b10;color:#f5f5f7;min-height:100vh}main{max-width:760px;margin:auto;padding:32px 18px 48px}.card{background:#15151c;border:1px solid #292933;border-radius:24px;padding:24px;box-shadow:0 20px 60px #0005}h1{margin:0 0 7px;font-size:30px}p{color:#a9a9b4;line-height:1.5}.grid{display:grid;gap:13px;margin-top:20px}label{font-size:13px;color:#bdbdc8}input{width:100%;margin-top:7px;padding:13px 14px;border-radius:12px;border:1px solid #343440;background:#0f0f15;color:#fff;font-size:15px;outline:none}input[type=file]{padding:10px}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}button,a.btn{border:0;border-radius:12px;padding:13px 17px;font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;background:#7c5cff;color:white}button.secondary{background:#292933}button.danger{background:#8b3030}button:disabled{opacity:.5}.result{display:none;margin-top:22px;padding:17px;border-radius:16px;background:#0e0e14;border:1px solid #30303a}.result code{display:block;overflow:auto;white-space:nowrap;padding:11px;margin-top:7px;background:#17171f;border-radius:10px;color:#d8d8e0}.note{font-size:13px}.ok{color:#8de5a1}.error{color:#ff8f8f}.spin{margin-top:16px}.progress{display:none;margin-top:12px;height:10px;border-radius:99px;background:#292933;overflow:hidden}.progress.on{display:block}.bar{height:100%;width:0;background:#7c5cff;transition:width .08s}.pct{display:none;margin-top:6px;font-size:12px;color:#a9a9b4}.pct.on{display:block}.hint{font-size:12px;color:#8e8e9a}.small{font-size:13px}.setup{margin-top:22px}
 </style>
 </head>
 <body>
@@ -19,7 +19,7 @@
 <label>Version<input id="version" placeholder="1.0"></label>
 <label>Icon URL (optional)<input id="icon" placeholder="https://example.com/icon.png"></label>
 </div>
-<div class="buttons"><button id="uploadBtn" onclick="uploadIPA()">Upload IPA &amp; Generate OTA</button><button class="secondary" onclick="location.reload()">Reset</button></div>
+<div class="buttons"><button id="uploadBtn" onclick="uploadIPA()">Upload IPA &amp; Generate OTA</button><button id="cancelBtn" class="danger" onclick="cancelUpload()" disabled>Cancel</button><button class="secondary" onclick="location.reload()">Reset</button></div>
 <p id="status" class="spin small">Ready.</p>
 <div id="progress" class="progress"><div id="bar" class="bar"></div></div>
 <div id="pct" class="pct">0%</div>
@@ -39,51 +39,63 @@
 <p class="note">The IPA must already be properly signed. This uploader does not sign or modify the IPA.</p>
 </div></main>
 <script type="module">
-import {initializeApp,getApps} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
+import {initializeApp,getApps,getApp} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js';
 import {getAuth,signInAnonymously} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js';
-import {getStorage,ref,uploadBytes,uploadBytesResumable,getDownloadURL,setMaxUploadRetryTime} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-storage.js';
+import {getStorage,ref,uploadBytes,uploadBytesResumable,getDownloadURL} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-storage.js';
 const $=id=>document.getElementById(id);
 const KEYS=['apiKey','authDomain','projectId','storageBucket','appId'];
+let activeTask=null;
 const saved=JSON.parse(localStorage.getItem('scarletFirebaseConfig')||'null');
 if(saved)for(const k of KEYS)if(saved[k])$(k).value=saved[k];
 window.saveConfig=()=>{const c={};for(const k of KEYS)c[k]=$(k).value.trim();if(Object.values(c).some(v=>!v))return alert('Fill in all Firebase config fields.');localStorage.setItem('scarletFirebaseConfig',JSON.stringify(c));alert('Firebase config saved.');};
 const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const manifest=(url,n,b,v,i)=>`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(url)}</string></dict>${i?`<dict><key>kind</key><string>display-image</string><key>url</key><string>${esc(i)}</string></dict>`:''}</array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(b)}</string><key>bundle-version</key><string>${esc(v)}</string><key>kind</key><string>software</string><key>title</key><string>${esc(n)}</string></dict></dict></array></dict></plist>`;
 function humanBytes(n){if(!n)return '0 B';const u=['B','KB','MB','GB'];let i=0,x=n;while(x>=1024&&i<u.length-1){x/=1024;i++}return `${x.toFixed(i?1:0)} ${u[i]}`;}
-function uploadFast(storage,file,path,onProgress){
+function uploadFile(storage,file,path,onProgress){
   const fileRef=ref(storage,path);
-  // A single-request upload is usually quicker for smaller IPAs because it avoids
-  // resumable-session/chunk overhead. Large IPAs use resumable upload for reliability.
-  if(file.size<=64*1024*1024){
-    onProgress(0,0,file.size);
-    return uploadBytes(fileRef,file,{contentType:file.type||'application/octet-stream',cacheControl:'public,max-age=31536000'}).then(r=>{onProgress(100,file.size,file.size);return r.ref;});
+  // Small files use one request. Large IPAs use Firebase's resumable uploader so a
+  // temporary network interruption does not require restarting the whole file.
+  if(file.size<=32*1024*1024){
+    onProgress(0,0,file.size,'running');
+    return uploadBytes(fileRef,file,{contentType:file.type||'application/octet-stream',cacheControl:'public,max-age=31536000'}).then(s=>{onProgress(100,file.size,file.size,'success');return s.ref;});
   }
   return new Promise((resolve,reject)=>{
     const task=uploadBytesResumable(fileRef,file,{contentType:file.type||'application/octet-stream',cacheControl:'public,max-age=31536000'});
-    task.on('state_changed',snap=>{const p=snap.totalBytes?Math.round(snap.bytesTransferred/snap.totalBytes*100):0;onProgress(p,snap.bytesTransferred,snap.totalBytes);},reject,()=>resolve(task.snapshot.ref));
+    activeTask=task;
+    task.on('state_changed',snap=>{
+      const p=snap.totalBytes?Math.round(snap.bytesTransferred/snap.totalBytes*100):0;
+      onProgress(p,snap.bytesTransferred,snap.totalBytes,snap.state);
+    },err=>{activeTask=null;reject(err);},()=>{activeTask=null;resolve(task.snapshot.ref);});
   });
 }
+window.cancelUpload=()=>{if(activeTask){activeTask.cancel();activeTask=null;}};
 window.uploadIPA=async()=>{
 const f=$('ipaFile').files[0];
 if(!f||!f.name.toLowerCase().endsWith('.ipa'))return alert('Choose an .ipa file first.');
 const cfg=JSON.parse(localStorage.getItem('scarletFirebaseConfig')||'null');
 if(!cfg)return alert('Open Firebase setup and save your Firebase config first.');
-$('uploadBtn').disabled=true;$('result').style.display='none';$('progress').className='progress on';$('pct').className='pct on';$('bar').style.width='0%';$('pct').textContent='0%';$('speed').textContent='';
-let lastBytes=0,lastTime=performance.now();
+$('uploadBtn').disabled=true;$('cancelBtn').disabled=false;$('result').style.display='none';$('progress').className='progress on';$('pct').className='pct on';$('bar').style.width='0%';$('pct').textContent='0%';$('speed').textContent='';
+let lastBytes=0,lastTime=performance.now(),smoothSpeed=0;
 try{
-const app=getApps().length?getApps()[0]:initializeApp(cfg);const auth=getAuth(app);const storage=getStorage(app);setMaxUploadRetryTime(storage,120000);
-$('status').textContent='Signing in anonymously…';
+const app=getApps().length?getApp():initializeApp(cfg);const auth=getAuth(app);const storage=getStorage(app);
+$('status').textContent='Signing in…';
 if(!auth.currentUser)await signInAnonymously(auth);
 const id=crypto.randomUUID();const ipaPath=`ipa/${id}/${f.name}`;
-$('status').textContent=f.size<=64*1024*1024?'Starting fast upload…':'Starting resumable upload…';
-const ipaRef=await uploadFast(storage,f,ipaPath,(p,bytes,total)=>{const now=performance.now();if(now-lastTime>350||p===100){const elapsed=(now-lastTime)/1000;const rate=elapsed>0?(bytes-lastBytes)/elapsed:0;$('speed').textContent=`${humanBytes(bytes)} / ${humanBytes(total)} • ${humanBytes(rate)}/s`;lastBytes=bytes;lastTime=now;}$('bar').style.width=p+'%';$('pct').textContent=p+'%';$('status').textContent=`Uploading IPA… ${p}%`;});
+$('status').textContent=f.size<=32*1024*1024?'Starting fast upload…':'Starting resumable upload…';
+const ipaRef=await uploadFile(storage,f,ipaPath,(p,bytes,total,state)=>{
+  const now=performance.now();const dt=(now-lastTime)/1000;
+  if((dt>=0.35||p===100)&&bytes>=lastBytes){const instant=dt>0?(bytes-lastBytes)/dt:0;smoothSpeed=smoothSpeed?0.7*smoothSpeed+0.3*instant:instant;lastBytes=bytes;lastTime=now;$('speed').textContent=`${humanBytes(bytes)} / ${humanBytes(total)} • ${humanBytes(smoothSpeed)}/s`;}
+  $('bar').style.width=p+'%';$('pct').textContent=p+'%';$('status').textContent=state==='paused'?'Upload paused':`Uploading IPA… ${p}%`;
+});
 const ipaUrl=await getDownloadURL(ipaRef);
 $('status').textContent='Generating OTA manifest…';
 const n=$('name').value.trim()||f.name.replace(/\.ipa$/i,''),b=$('bundle').value.trim()||'com.example.myapp',v=$('version').value.trim()||'1.0',i=$('icon').value.trim();
-const m=manifest(ipaUrl,n,b,v,i);const mf=new Blob([m],{type:'application/xml'});const manifestRef=await uploadFast(storage,mf,`manifests/${id}/manifest.plist`,()=>{});const mu=await getDownloadURL(manifestRef);const iu=`itms-services://?action=download-manifest&url=${encodeURIComponent(mu)}`;
+const mf=new Blob([manifest(ipaUrl,n,b,v,i)],{type:'application/xml'});
+const manifestRef=await uploadBytes(ref(storage,`manifests/${id}/manifest.plist`),mf,{contentType:'application/xml',cacheControl:'public,max-age=31536000'});
+const mu=await getDownloadURL(manifestRef.ref);const iu=`itms-services://?action=download-manifest&url=${encodeURIComponent(mu)}`;
 $('bar').style.width='100%';$('pct').textContent='100%';$('speed').textContent='';$('status').textContent='Upload complete.';$('result').style.display='block';$('result').innerHTML=`<div class="ok"><b>Upload complete!</b></div><p>Install on iPhone/iPad:</p><div class="buttons"><a class="btn" href="${esc(iu)}">Install</a><button class="secondary" onclick="navigator.clipboard.writeText(${JSON.stringify(iu)}).then(()=>alert('Copied!'))">Copy Link</button></div><p>IPA URL:</p><code>${esc(ipaUrl)}</code>`;
-}catch(e){$('status').textContent='Upload failed.';$('progress').className='progress';$('pct').className='pct';$('speed').textContent='';$('result').style.display='block';let msg=e?.message||String(e);$('result').innerHTML=`<div class="error"><b>Upload failed</b><p>${esc(msg)}</p><p class="small">If this says permission-denied, open Firebase Storage Rules and allow your authenticated anonymous users to write to Storage.</p></div>`;
-}finally{$('uploadBtn').disabled=false;}
+}catch(e){$('status').textContent=e?.code==='storage/canceled'?'Upload canceled.':'Upload failed.';$('progress').className='progress';$('pct').className='pct';$('speed').textContent='';$('result').style.display='block';const msg=e?.message||String(e);$('result').innerHTML=`<div class="error"><b>${e?.code==='storage/canceled'?'Upload canceled':'Upload failed'}</b><p>${esc(msg)}</p><p class="small">${e?.code==='storage/quota-exceeded'?'Your Firebase project needs the Blaze plan for IPA uploads.':e?.code==='storage/unauthorized'?'Check Firebase Storage Rules and Anonymous Authentication.':esc(msg)}</p></div>`;
+}finally{$('uploadBtn').disabled=false;$('cancelBtn').disabled=true;activeTask=null;}
 };
 </script>
 </body></html>
