@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scarlet IPA Installer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Inter,Arial,sans-serif;background:#0b0b10;color:#f5f5f7;min-height:100vh}main{max-width:760px;margin:0 auto;padding:48px 20px}.card{background:#15151c;border:1px solid #292933;border-radius:24px;padding:28px;box-shadow:0 20px 60px #0005}h1{margin:0 0 8px;font-size:32px}p{color:#a9a9b4;line-height:1.5}.grid{display:grid;gap:14px;margin-top:24px}label{font-size:13px;color:#bdbdc8}input{width:100%;margin-top:7px;padding:14px 15px;border-radius:12px;border:1px solid #343440;background:#0f0f15;color:#fff;font-size:15px;outline:none}input:focus{border-color:#7c5cff}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}button,a.btn{border:0;border-radius:12px;padding:13px 17px;font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;background:#7c5cff;color:white}button.secondary{background:#292933}.result{display:none;margin-top:24px;padding:18px;border-radius:16px;background:#0e0e14;border:1px solid #30303a}.result code{display:block;overflow:auto;white-space:nowrap;padding:12px;margin-top:8px;background:#17171f;border-radius:10px;color:#d8d8e0}.note{font-size:13px;margin-top:20px}.ok{color:#8de5a1}.warn{color:#ffd479}.footer{text-align:center;color:#777784;font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+<h1>Scarlet IPA Installer</h1>
+<p>Generate an iOS OTA installation link for an already-signed IPA hosted at a public HTTPS URL.</p>
+<div class="grid">
+<label>IPA URL<input id="ipa" placeholder="https://example.com/MyApp.ipa" autocomplete="off"></label>
+<label>App name<input id="name" placeholder="My App"></label>
+<label>Bundle ID<input id="bundle" placeholder="com.example.myapp"></label>
+<label>Version<input id="version" placeholder="1.0"></label>
+<label>Icon URL (optional)<input id="icon" placeholder="https://example.com/icon.png"></label>
+</div>
+<div class="buttons"><button onclick="generate()">Generate OTA</button><button class="secondary" onclick="copyInstall()">Copy Install Link</button></div>
+<div id="result" class="result"></div>
+<p class="note"><span class="warn">Important:</span> GitHub Pages is static hosting, so this page cannot permanently upload an IPA from the browser. Your IPA must already be hosted at a public HTTPS URL. The generated manifest below is a preview; for a working OTA link, save the manifest as <b>manifest.plist</b> in this repository and replace its values with your IPA details.</p>
+</div>
+<div class="footer">Scarlet IPA Installer • GitHub Pages</div>
+</main>
+<script>
+let installLink='';
+function esc(s){return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')}
+function generate(){
+ const ipa=document.getElementById('ipa').value.trim(),name=document.getElementById('name').value.trim()||'My App',bundle=document.getElementById('bundle').value.trim()||'com.example.myapp',version=document.getElementById('version').value.trim()||'1.0',icon=document.getElementById('icon').value.trim();
+ if(!/^https:\/\//i.test(ipa)){alert('Enter a public HTTPS IPA URL.');return}
+ const iconXml=icon?`<key>assets</key><array><dict><key>kind</key><string>display-image</string><key>url</key><string>${esc(icon)}</string></dict></array>`:'';
+ const plist=`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(ipa)}</string></dict>${icon?`<dict><key>kind</key><string>display-image</string><key>url</key><string>${esc(icon)}</string></dict>`:''}</array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(bundle)}</string><key>bundle-version</key><string>${esc(version)}</string><key>kind</key><string>software</string><key>title</key><string>${esc(name)}</string></dict></dict></array></dict></plist>`;
+ const manifestUrl=new URL('manifest.plist',location.href).href; installLink=`itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;
+ document.getElementById('result').style.display='block'; document.getElementById('result').innerHTML=`<div class="ok"><b>OTA link generated</b></div><p>Manifest URL:</p><code>${esc(manifestUrl)}</code><p>Install URL:</p><code id="install">${esc(installLink)}</code><p>Manifest content to put in <b>manifest.plist</b>:</p><code style="white-space:pre-wrap">${esc(plist)}</code>`;
+}
+async function copyInstall(){if(!installLink){generate();if(!installLink)return}try{await navigator.clipboard.writeText(installLink);alert('Install link copied.')}catch(e){alert(installLink)}}
+</script>
+</body>
+</html>
